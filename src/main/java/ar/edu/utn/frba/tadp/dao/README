@@ -1,0 +1,67 @@
+El patrón más común en una aplicación de cliente / servidor multiusuario es session-per-request.
+
+En este modelo, se envía una solicitud del cliente al servidor, donde se ejecuta la capa de persistencia de Hibernate. 
+Se abre una nueva sesión de Hibernate y todas las operaciones de la base de datos se ejecutan en esta unidad de trabajo.
+Al finalizar el trabajo, y una vez que se ha preparado la respuesta para el cliente, la sesión se vacía y se cierra.
+
+Utilice una única transacción de base de datos para atender los requests de los clientes, iniciando y comiteando cuando abra
+y cierre la session. La relacion entre session y tx es uno a uno (one session - one database transaction), y este modelo 
+es perfecto para muchas apps.
+
+
+
+
+
+Versionado automático: Hibernate puede realizar un control automático de concurrencia optimista para usted. Puede detectar automáticamente si se produjo una modificación simultánea durante el tiempo de reflexión del usuario. Verifique esto al final de la conversación.
+
+    Objetos independientes: si decide utilizar el patrón de sesión por solicitud, todas las instancias cargadas estarán en estado separado durante el tiempo de reflexión del usuario. Hibernate le permite volver a conectar los objetos y persistir las modificaciones. El patrón se llama session-per-request-with-detached-objects. El control de versiones automático se usa para aislar modificaciones concurrentes.
+
+    Sesión extendida (o larga): la sesión de Hibernate se puede desconectar de la conexión JDBC subyacente después de que la transacción de la base de datos se haya confirmado y reconectado cuando se produce una nueva solicitud del cliente. Este patrón se conoce como sesión-por-conversación y hace que incluso la reinserción sea innecesaria. El control de versiones automático se utiliza para aislar las modificaciones concurrentes y no se permitirá que la sesión se vacíe automáticamente, sino explícitamente.
+
+ Terminar una sesión usualmente involucra cuatro fases distintas:
+
+    enjuagar la sesión
+
+    comprometer la transacción
+
+    cerrar la sesión
+
+    manejar excepciones
+
+Managed Environment : significa que todo lo que necesita Hibernate será manejado por el entorno en sí; 
+el pooling de transacciones y conexiones son dos cosas importantes que Hibernate requerirá que proporcione cualquier servidor JEE 
+compatible.
+Si usamos Hibernate dentro de un ambiente administrado por un conteiner, entonces no es necesario depender de la implementación 
+del pool de conexiones de Hibernate, ya que se puede usar el grupo de conexiones por el servidor.
+
+
+Non-Managed Environment :  necesita que agreguemos esfuerzos adicionales al proporcionar a Hibernate todo lo que necesita.
+Inicar una transacción y comitear es nuestra responsabilidad.
+Hibernate se ha integrado con fluidez con la implementación del conjunto de conexiones C3P0
+
+
+Como hibernate no puede vincular la session a una transaccion entonces debemos administrar la transacción
+entonces debemos obtener la session con getCurrentSession () por primera vez, pero en un estado "proxy" 
+que no le permite hacer nada excepto iniciar una transacción. 
+
+Session sess = factory.getCurrentSession();
+Transaction tx = null;
+try {
+    tx = sess.beginTransaction();
+
+    // do some work
+    ...
+
+    tx.commit();
+}
+catch (RuntimeException e) {
+    if (tx != null) tx.rollback();
+    throw e; // or display error message
+}
+finally {
+    sess.close();
+}  
+
+
+
+Cuando la transacción finaliza, ya sea mediante commit o rollback, la sesión "actual" se cierra automáticamente. La siguiente llamada a getCurrentSession () inicia una nueva sesión con proxy, y así sucesivamente. 

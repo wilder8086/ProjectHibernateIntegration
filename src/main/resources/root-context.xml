@@ -1,0 +1,146 @@
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:p="http://www.springframework.org/schema/p" 
+    xmlns:tx="http://www.springframework.org/schema/tx"
+    xmlns:context="http://www.springframework.org/schema/context"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.org/schema/beans
+		http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/tx
+		http://www.springframework.org/schema/tx/spring-tx.xsd
+		http://www.springframework.org/schema/context
+		http://www.springframework.org/schema/context/spring-context.xsd">
+		
+
+
+		
+
+	<!-- 
+		ApplicationContext es el contexto raíz, que tiene configuraciones de bean que podríamos querer usar 
+		(y reutilizar) en toda la aplicación como singletons. 
+		Siempre hay un contexto de aplicación único en una aplicación web. 
+	 -->
+
+	<!--	este archivo es donde definiremos el contexto de la aplicación que puede ser cargado en nuestra app por el 
+			root application context, eso lo definimon en el web.xml :
+			<context-param>
+				<param-name>contextConfigLocation</param-name>
+				<param-value>
+					/WEB-INF/library-service.xml
+            		/WEB-INF/library-security.xml
+        		</param-value>
+			</context-param>
+			En nuestro caso se define este archivo y se importa desde springFlowApplication-servlet.xml				
+	-->
+
+
+
+	<!-- Tenemos 2 formas de inyectar los servicios y esten accesibles (en nuestro caso accesible desde la libreria SWF) 
+		 Vamos a usar la 2 forma, entonces comentamos la 1 forma
+	-->
+	
+	<!-- 1) La primera forma es declarando los beans con un nombre unico y el name class para que el Spring IoC
+			container lo instancie -->
+
+
+    				
+	<!-- 2) La segunda forma es declarando annotattions a las clases componentes y preguntarle a spring para scanearlos
+		mediante el elemento <context:component-scan>. donde se especifica el package donde escaneara ese package y sub-packages.
+		En este ejemplo hemos creado 2 stereotypes en el package service y handler
+		Podemos especificar varios packages separados con comas. -->
+
+	<context:component-scan base-package="ar.edu.utn.frba.tadp" />
+	
+	
+	<!-- si no definimos estos servicios para que sea usado desde nuestro flujo, e.g login.xml usa el service 
+		y este no lo va encontrar y mostrara el error :
+	
+	org.springframework.webflow.execution.ActionExecutionException: Exception thrown executing 
+	[AnnotatedAction@5ecefb targetAction = [EvaluateAction@66c508 expression = loginService.validateUser(loginBean), 
+	resultExpression = [null]], attributes = map[[empty]]] in state 'performLoginAction' of flow 'loginFlow' 
+	- action execution attributes were 'map[[empty]]'
+	
+	org.springframework.binding.expression.PropertyNotFoundException: Property not found
+	
+	org.springframework.expression.spel.SpelEvaluationException: EL1008E:(pos 0): Field or property 'loginService' 
+	cannot be found on object of type 'org.springframework.webflow.engine.impl.RequestControlContextImpl'
+	 -->
+
+	<!-- ============================ Definicion de Base de datos ============================ -->
+    <bean id="dataSource" class="org.springframework.jdbc.datasource.DriverManagerDataSource">
+        <property name="driverClassName" value="com.microsoft.sqlserver.jdbc.SQLServerDriver"/>
+        <property name="url" value="jdbc:sqlserver://localhost:1433;databaseName=NCAR_USERS"/>
+        <property name="username" value="sa"/>
+        <property name="password" value="rodrigo2013"/>
+    </bean>    
+    
+	<!-- ============================ Definicion de Conexion Hibernate a DB ============================ --> 
+ 	<!-- Con la definicion de este bean se realizará la conexión a base de datos y mediante esa conexión tenemos un 
+ 		bean en sessión con la conexión denominado sessionFactory
+ 	 -->
+    <bean id="sessionFactory" class="org.springframework.orm.hibernate4.LocalSessionFactoryBean">
+        <property name="dataSource" ref="dataSource"></property>
+        <property name="configLocation">
+            <value>classpath:hibernate.cfg.xml</value>
+        </property>
+        <property name="hibernateProperties">
+            <props>
+                <prop key="hibernate.dialect">org.hibernate.dialect.SQLServerDialect</prop>
+                <prop key="hibernate.show_sql">true</prop>
+                <!-- Si comento esto que sigue entonces tira este error
+                org.hibernate.HibernateException: No Session found for current thread
+						at org.springframework.orm.hibernate4.SpringSessionContext.currentSession(SpringSessionContext.java:106)
+                 
+                 La propiedad define qué implementación de org.hibernate.context.CurrentSessionContext se debe usar,
+                 hibernate tiene 3 implementaciones:
+                 org.hibernate.context.JTASessionContext:
+                 org.hibernate.context.ThreadLocalSessionContext: las sesiones actuales se rastrean por hilo de ejecución
+                 org.hibernate.context.ManagedSessionContext:las sesiones actuales se rastrean por hilo de ejecución. Sin embargo, usted es responsable de vincular y desvincular una instancia de sesión con métodos estáticos en esta clase: no abre, vacía o cierra una sesión.
+                 
+                 tres nombres cortos correspondientes: "jta", "thread" y "managed".
+                 
+                 Esto no significa que todas las sesiones de Hibernate se cierran cuando se comitea una transacción
+                 -->
+                 <!-- Specify session context -->
+                <prop key="hibernate.current_session_context_class">thread</prop>
+                
+                <prop key="hibernate.c3p0.min_size">5</prop>
+                <prop key="hibernate.c3p0.max_size">20</prop>
+                <prop key="hibernate.c3p0.timeout">300</prop>
+                <prop key="hibernate.c3p0.max_statements">50</prop>
+                <prop key="hibernate.c3p0.idle_test_period">3000</prop>
+                
+            </props>
+        </property>
+    </bean>
+
+	<!-- ============================ Uso de transacciones con Spring : forma declarativa Annotations ============================ -->
+
+	<!-- Usamos el bean 'sessionFactory' para definir la transacción -->        
+    <bean id="transactionManager" class="org.springframework.orm.hibernate4.HibernateTransactionManager">
+        <property name="sessionFactory" ref="sessionFactory"></property>
+    </bean>  
+    
+    
+	<!-- Un manejo transaccional apropiado en nuestras aplicaciones es cada día más importante para asegurar robustez, 
+		especialmente en ambientes inciertos (desconexiones, latencias) y de alta concurrencia.
+		
+		Habilitamos la configuracion de comportamiento transaccional basado en annotations.
+		La propiedad transaction-manager tiene una referencia al bean que gestiona las transacciones, definido arriba.
+		El tener configurado este bean nos habilita a poder anotar nuestras clases y métodos con @Transactional y 
+		definir de esta forma nuestras transacciones de forma declarativa y dentro de nuestro código Java.
+		
+		Con esto queremos que nuestros servicios sean transaccionales, y no que sean definidos en los DAO.
+		Por ejemplo si los definimos en los DAOs para que sean transaccionales y en cada servicio llamamos a difrentes DAOs
+		entonces tendremos multiples txs para un llamado a un methodo del servicio, lo cual no es deseable.
+		Lo ideal y normal es tener varios DAOs inyectados en mi servicio y que necesitan trabajar juntas en una sola Tx.
+		Las transacciones van en la capa de servicio, ya que es ella la que se conoce como una unit of work o caso de uso.  
+	 -->
+	<!-- Esta línea le indica a spring que la transaccionalidad se define por anotación y le dice a Spring 
+		que use la anotación @Transactional cuando aplique el interceptor de transacciones. --> 
+    <tx:annotation-driven transaction-manager="transactionManager"/> 
+
+
+    
+    <bean id="persistenceExceptionTranslationPostProcessor" class="org.springframework.dao.annotation.PersistenceExceptionTranslationPostProcessor"/>
+</beans>
